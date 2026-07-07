@@ -20,7 +20,17 @@ export default async function handler(req, res) {
     return;
   }
 
-  try {
+  const systemPrompt = 'You are a professional copywriter producing ready-to-use content for a video creator tool. ' +
+    'Output ONLY the final, clean result the user asked for — nothing else. ' +
+    'Never show your reasoning, planning, character counting, drafts, or any internal thought process. ' +
+    'Never wrap anything in <think> tags or similar. Do not explain what you are about to do. ' +
+    'Do not add commentary before or after the requested content. Just the finished output, correctly formatted.';
+
+  // Known-good free instruction-following model. Avoids "openrouter/free" auto-routing,
+  // which can land on a reasoning model that leaks its internal thought process.
+  const primaryModel = 'meta-llama/llama-3.3-70b-instruct:free';
+
+  async function callModel(model) {
     const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -30,20 +40,40 @@ export default async function handler(req, res) {
         'X-Title': 'VideoGenerative'
       },
       body: JSON.stringify({
-        model: 'openrouter/free',
+        model,
         max_tokens: Math.min(Math.max(Number(max_tokens) || 900, 50), 2000),
-        messages: [{ role: 'user', content: prompt }]
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ]
       })
     });
-
     const data = await upstream.json().catch(() => ({}));
+    return { ok: upstream.ok, status: upstream.status, data };
+  }
 
-    if (!upstream.ok) {
-      res.status(upstream.status).json({ error: data?.error?.message || 'Upstream API error' });
+  function cleanOutput(raw) {
+    if (!raw) return raw;
+    // Safety net: strip any leaked reasoning blocks a model might emit anyway.
+    let out = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    out = out.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+    return out.trim();
+  }
+
+  try {
+    let result = await callModel(primaryModel);
+
+    // Fall back to the free auto-router only if the pinned model is unavailable/rate-limited.
+    if (!result.ok) {
+      result = await callModel('openrouter/free');
+    }
+
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.data?.error?.message || 'Upstream API error' });
       return;
     }
 
-    const text = data?.choices?.[0]?.message?.content || '';
+    const text = cleanOutput(result.data?.choices?.[0]?.message?.content || '');
     res.status(200).json({ text });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unexpected server error' });
