@@ -1,0 +1,17 @@
+{
+  "name": "videogenerative",
+  "version": "1.0.0",
+  "description": "VideoGenerative - The AI That Dominates Every Platform",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site - no build required'",
+    "lint": "echo 'No linter configured'"
+  },
+  "dependencies": {
+    "@vercel/speed-insights": "^1.0.12"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
